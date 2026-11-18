@@ -1,12 +1,14 @@
-// A token-radar-01 entry (Node 22, standard library only).
+// A token-radar-01 entry (Node 22, standard library only), model radar-3.
 //
-// The program reads the sealed snapshot from /input/snapshot.json (or --input <file|dir>), scores
-// every pre-token protocol with the calibrated model in lib/model.ts, writes the ranked board to
-// /output/board.json, and copies this repository's dashboard/ and screenshots/ to /output. Last, it
-// writes /output/dossier.json, the summary the judge reads, with the vendored make.fun library.
-//
-// The dashboard is a static page, no framework and no network: dashboard/index.html, dashboard/app.css
-// and dashboard/app.js read /output/data.js, which this program writes from the same board.
+// The program reads the sealed snapshot from /input/snapshot.json (or --input <file|dir>),
+// fits the size curve on the snapshot's own live-token comparables, validates it four ways
+// (leave-one-out, walk-forward, two blind splits) against a naive baseline, bootstraps the
+// rank ranges, scores every pre-token protocol, and writes the ranked board to
+// /output/board.json. It copies this repository's dashboard/ and screenshots/ to /output and
+// writes /output/dossier.json, the summary the judge reads, with the vendored make.fun
+// library. The dashboard is a static page, no framework and no network: dashboard/index.html,
+// dashboard/app.css and dashboard/app.js read /output/data.js, which this program writes
+// from the same board.
 //
 // Outside the grader's container, MAKEFUN_OUTPUT_DIR stands in for /output:
 //   mkdir -p out && MAKEFUN_OUTPUT_DIR=out node main.ts --input ../input/snapshot.json
@@ -85,6 +87,8 @@ writeFileSync(join(out, 'dossier.json'), buildDossier(out, { text_max_bytes: TEX
 
 process.stdout.write(
   `token radar: ${snapshot.protocols.length} protocols, ${snapshot.watchlist.length} on the watchlist, ${board.length} rows scored (${radar.early_size} early, ${radar.live_size} live set aside)\n` +
-    `token radar: model ${radar.model_version}, global multiple x${radar.global_multiple}, top implied value ${board[0] ? `$${board[0].implied_value_usd.toLocaleString('en-US')}` : 'n/a'}\n` +
+    `token radar: model ${radar.model_version}, log slope ${radar.log_slope}, top implied value ${board[0] ? `$${board[0].implied_value_usd.toLocaleString('en-US')}` : 'n/a'}\n` +
+    `token radar: validation LOO ${radar.validation.loo.median_factor}x, walk-forward ${radar.validation.walk_forward.median_factor}x, blind ${radar.validation.blind_a.median_factor}x / ${radar.validation.blind_b.median_factor}x, baseline LOO ${radar.validation.baseline_loo_median}x, Spearman ${radar.validation.spearman}\n` +
+    `token radar: rank ranges from ${radar.model.bootstrap_refits} bootstrap refits, top row rank ${board[0] ? `${board[0].uncertainty.rank_lo}-${board[0].uncertainty.rank_hi}` : 'n/a'}\n` +
     `token radar: wrote ${join(out, 'board.json')}, ${join(out, 'data.js')}, ${join(out, 'dashboard')} (${dash.length} files), ${join(out, 'screenshots')} (${shots.length} images) and ${join(out, 'dossier.json')}\n`,
 );
