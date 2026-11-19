@@ -1,22 +1,23 @@
-// A token-radar-01 entry (Node 22, standard library only), model radar-3.
+// Token Radar, round 3 ("radar-4"): the program that builds the board.
 //
-// The program reads the sealed snapshot from /input/snapshot.json (or --input <file|dir>),
-// fits the size curve on the snapshot's own live-token comparables, validates it four ways
-// (leave-one-out, walk-forward, two blind splits) against a naive baseline, bootstraps the
-// rank ranges, scores every pre-token protocol, and writes the ranked board to
-// /output/board.json. It copies this repository's dashboard/ and screenshots/ to /output and
-// writes /output/dossier.json, the summary the judge reads, with the vendored make.fun
-// library. The dashboard is a static page, no framework and no network: dashboard/index.html,
-// dashboard/app.css and dashboard/app.js read /output/data.js, which this program writes
-// from the same board.
+// Reads the sealed snapshot from /input/snapshot.json (or --input <file|dir>),
+// scores every pre-token protocol with the fitted model in lib/model.ts,
+// writes the ranked board to /output/board.json and the dashboard's data to
+// /output/data.js, copies this repository's dashboard/ and screenshots/ to
+// /output, and writes /output/dossier.json with the vendored make.fun
+// library. The seal in data.js is the sha256 of board.json, so the page can
+// prove it renders the board it was built from.
+//
+// Node 22, standard library only. Two runs write the same bytes.
 //
 // Outside the grader's container, MAKEFUN_OUTPUT_DIR stands in for /output:
 //   mkdir -p out && MAKEFUN_OUTPUT_DIR=out node main.ts --input ../input/snapshot.json
 
 import { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs';
+import { createHash } from 'node:crypto';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { boardIssue, buildRadar, dataScript, parseSnapshot } from './lib/model.ts';
+import { boardIssue, buildBoard, dataScript, parseSnapshot } from './lib/model.ts';
 import { buildDossier } from './vendor/makefun-board.ts';
 
 const here = fileURLToPath(new URL('.', import.meta.url));
@@ -43,7 +44,7 @@ if (!existsSync(inputFile)) {
 const out = arg('output', process.env.MAKEFUN_OUTPUT_DIR ?? '/output');
 
 const snapshot = parseSnapshot(readFileSync(inputFile, 'utf8'));
-const { board, radar } = buildRadar(snapshot);
+const { board, radar } = buildBoard(snapshot);
 const issue = boardIssue(board, snapshot);
 if (issue !== null) {
   process.stderr.write(`token radar: the model wrote a board the gate refuses: ${issue}\n`);
@@ -51,8 +52,11 @@ if (issue !== null) {
 }
 
 mkdirSync(out, { recursive: true });
-writeFileSync(join(out, 'board.json'), `${JSON.stringify({ rows: board })}\n`);
-writeFileSync(join(out, 'data.js'), dataScript(radar));
+const boardBytes = `${JSON.stringify({ rows: board })}\n`;
+writeFileSync(join(out, 'board.json'), boardBytes);
+// The seal: the page shows the board is the board.json this run wrote.
+const seal = createHash('sha256').update(boardBytes).digest('hex');
+writeFileSync(join(out, 'data.js'), dataScript(radar, seal));
 
 /** Copy one directory's regular files into `to`, skipping names that start with a dot. */
 function copyFiles(from: string, to: string): string[] {
@@ -69,7 +73,7 @@ function copyFiles(from: string, to: string): string[] {
   return copied;
 }
 
-const dash = copyFiles(join(here, 'dashboard'), join(out, 'dashboard'));
+copyFiles(join(here, 'dashboard'), join(out, 'dashboard'));
 const shots = copyFiles(join(here, 'screenshots'), join(out, 'screenshots'));
 if (shots.length < 3) {
   process.stderr.write(`token radar: screenshots/ holds ${shots.length} image${shots.length === 1 ? '' : 's'}: hand in 3, the board, a detail view and a filtered view\n`);
@@ -87,8 +91,7 @@ writeFileSync(join(out, 'dossier.json'), buildDossier(out, { text_max_bytes: TEX
 
 process.stdout.write(
   `token radar: ${snapshot.protocols.length} protocols, ${snapshot.watchlist.length} on the watchlist, ${board.length} rows scored (${radar.early_size} early, ${radar.live_size} live set aside)\n` +
-    `token radar: model ${radar.model_version}, log slope ${radar.log_slope}, top implied value ${board[0] ? `$${board[0].implied_value_usd.toLocaleString('en-US')}` : 'n/a'}\n` +
-    `token radar: validation LOO ${radar.validation.loo.median_factor}x, walk-forward ${radar.validation.walk_forward.median_factor}x, blind ${radar.validation.blind_a.median_factor}x / ${radar.validation.blind_b.median_factor}x, baseline LOO ${radar.validation.baseline_loo_median}x, Spearman ${radar.validation.spearman}\n` +
-    `token radar: rank ranges from ${radar.model.bootstrap_refits} bootstrap refits, top row rank ${board[0] ? `${board[0].uncertainty.rank_lo}-${board[0].uncertainty.rank_hi}` : 'n/a'}\n` +
-    `token radar: wrote ${join(out, 'board.json')}, ${join(out, 'data.js')}, ${join(out, 'dashboard')} (${dash.length} files), ${join(out, 'screenshots')} (${shots.length} images) and ${join(out, 'dossier.json')}\n`,
+    `token radar: LOO ${radar.validation.loo.toFixed(2)}x, walk-forward ${radar.validation.wfOlderNewer.toFixed(2)}x / ${radar.validation.wfNewerOlder.toFixed(2)}x, exponent ${radar.model.exponent.toFixed(4)}\n` +
+    `token radar: farm ${radar.aggregate.farm} FARM / ${radar.aggregate.thin} THIN / ${radar.aggregate.skip} SKIP, board seal ${seal.slice(0, 16)}\n` +
+    `token radar: wrote ${join(out, 'board.json')}, ${join(out, 'data.js')}, ${join(out, 'dashboard')} (3 files), ${join(out, 'screenshots')} (${shots.length} images) and ${join(out, 'dossier.json')}\n`,
 );
